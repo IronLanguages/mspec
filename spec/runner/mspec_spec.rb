@@ -87,55 +87,89 @@ end
 
 describe MSpec, ".protect" do
   before :each do
-    @ss = mock('SpecState')
-    @ss.stub!(:exceptions).and_return([])
-    @rs = mock('RunState')
-    @rs.stub!(:state).and_return(@ss)
-    @exception = Exception.new("Sharp!")
-    ScratchPad.record @exception
+    MSpec.clear_current
+    @cs = ContextState.new "C#m"
+    @cs.stub!(:state).and_return(@es)
+    @cs.parent = MSpec.current
+
+    @es = ExampleState.new @cs, "runs"
+    ScratchPad.record Exception.new("Sharp!")
   end
 
-  it "rescues any exceptions raised when executing the block argument" do
-    MSpec.stack.push @rs
-    lambda {
-      MSpec.protect("") { raise Exception, "Now you see me..." }
-    }.should_not raise_error
+  it "returns true if no exception is raised" do
+    MSpec.protect("passed") { 1 }.should be_true
   end
 
-  it "records the exception in the current.state object's exceptions" do
-    MSpec.stack.push @rs
+  it "returns false if an exception is raised" do
+    MSpec.protect("testing") { raise ScratchPad.recorded }.should be_false
+  end
+
+  it "rescues any exceptions raised when evaluating the block argument" do
+    MSpec.protect("") { raise Exception, "Now you see me..." }
+  end
+
+  it "does not rescue SystemExit" do
+    begin
+      MSpec.protect("") { exit 1 }
+    rescue SystemExit
+      ScratchPad.record :system_exit
+    end
+    ScratchPad.recorded.should == :system_exit
+  end
+
+  it "calls all the exception actions" do
+    exc = ExceptionState.new @es, "testing", ScratchPad.recorded
+    ExceptionState.stub!(:new).and_return(exc)
+    action = mock("exception")
+    action.should_receive(:exception).with(exc)
+    MSpec.register :exception, action
     MSpec.protect("testing") { raise ScratchPad.recorded }
-    @ss.exceptions.should == [["testing", ScratchPad.recorded]]
+    MSpec.unregister :exception, action
   end
 
-  it "writes a message to STDERR if current is nil" do
-    STDERR.stub!(:write)
-    STDERR.should_receive(:write).with("\nAn exception occurred in testing:\nException: \"Sharp!\"\n")
-    MSpec.stack.clear
-    MSpec.protect("testing") { raise ScratchPad.recorded }
-  end
-
-  it "writes a message to STDERR if current.state is nil" do
-    STDERR.stub!(:write)
-    STDERR.should_receive(:write).with("\nAn exception occurred in testing:\nException: \"Sharp!\"\n")
-    @rs.stub!(:state).and_return(nil)
-    MSpec.stack.push @rs
+  it "registers a non-zero exit code when an exception is raised" do
+    MSpec.should_receive(:register_exit).with(1)
     MSpec.protect("testing") { raise ScratchPad.recorded }
   end
 end
 
-describe MSpec, ".stack" do
-  it "returns an array" do
-    MSpec.stack.should be_kind_of(Array)
+describe MSpec, ".register_current" do
+  before :each do
+    MSpec.clear_current
+  end
+
+  it "sets the value returned by MSpec.current" do
+    MSpec.current.should be_nil
+    MSpec.register_current :a
+    MSpec.current.should == :a
+  end
+end
+
+describe MSpec, ".clear_current" do
+  it "sets the value returned by MSpec.current to nil" do
+    MSpec.register_current :a
+    MSpec.current.should_not be_nil
+    MSpec.clear_current
+    MSpec.current.should be_nil
   end
 end
 
 describe MSpec, ".current" do
-  it "returns the top of the execution stack" do
-    MSpec.stack.clear
-    MSpec.stack.push :a
-    MSpec.stack.push :b
-    MSpec.current.should == :b
+  before :each do
+    MSpec.clear_current
+  end
+
+  it "returns nil if no ContextState has been registered" do
+    MSpec.current.should be_nil
+  end
+
+  it "returns the most recently registered ContextState" do
+    first = ContextState.new ""
+    second = ContextState.new ""
+    MSpec.register_current first
+    MSpec.current.should == first
+    MSpec.register_current second
+    MSpec.current.should == second
   end
 end
 
@@ -188,23 +222,32 @@ end
 
 describe MSpec, ".describe" do
   before :each do
-    MSpec.stack.clear
+    MSpec.clear_current
+    @cs = ContextState.new ""
+    ContextState.stub!(:new).and_return(@cs)
+    MSpec.stub!(:current).and_return(nil)
+    MSpec.stub!(:register_current)
   end
 
-  it "accepts one argument" do
-    MSpec.describe(Object) { ScratchPad.record MSpec.current }
-    ScratchPad.recorded.should be_kind_of(RunState)
+  it "creates a new ContextState for the block" do
+    ContextState.should_receive(:new).and_return(@cs)
+    MSpec.describe(Object) { }
   end
 
-  it "pushes a new RunState instance on the stack" do
-    MSpec.describe(Object, "msg") { ScratchPad.record MSpec.current }
-    ScratchPad.recorded.should be_kind_of(RunState)
+  it "accepts an optional second argument" do
+    ContextState.should_receive(:new).and_return(@cs)
+    MSpec.describe(Object, "msg") { }
   end
 
-  it "pops the RunState instance off the stack when finished" do
-    MSpec.describe(Object, "msg") { ScratchPad.record MSpec.current }
-    ScratchPad.recorded.should be_kind_of(RunState)
-    MSpec.stack.should == []
+  it "registers the newly created ContextState" do
+    MSpec.should_receive(:register_current).with(@cs).twice
+    MSpec.describe(Object) { }
+  end
+
+  it "invokes the ContextState#describe method" do
+    prc = lambda { }
+    @cs.should_receive(:describe).with(&prc)
+    MSpec.describe(Object, "msg", &prc)
   end
 end
 
@@ -388,5 +431,55 @@ benchmark(0.01825):The#fastest method today
     MSpec.delete_tag(SpecTag.new("incomplete:The#best method ever")).should == true
     MSpec.delete_tag(SpecTag.new("benchmark:The#fastest method today")).should == true
     File.exist?(tmp("tags.txt")).should == false
+  end
+end
+
+describe MSpec, ".expectation" do
+  it "sets the flag that an expectation has been reported" do
+    MSpec.clear_expectations
+    MSpec.expectation?.should be_false
+    MSpec.expectation
+    MSpec.expectation?.should be_true
+  end
+end
+
+describe MSpec, ".expectation?" do
+  it "returns true if an expectation has been reported" do
+    MSpec.expectation
+    MSpec.expectation?.should be_true
+  end
+
+  it "returns false if an expectation has not been reported" do
+    MSpec.clear_expectations
+    MSpec.expectation?.should be_false
+  end
+end
+
+describe MSpec, ".clear_expectations" do
+  it "clears the flag that an expectation has been reported" do
+    MSpec.expectation
+    MSpec.expectation?.should be_true
+    MSpec.clear_expectations
+    MSpec.expectation?.should be_false
+  end
+end
+
+describe MSpec, ".register_shared" do
+  it "stores a shared ContextState by description" do
+    parent = ContextState.new "container"
+    state = ContextState.new "shared"
+    state.parent = parent
+    prc = lambda { }
+    state.describe(&prc)
+    MSpec.register_shared(state)
+    MSpec.retrieve(:shared)["shared"].should == state
+  end
+end
+
+describe MSpec, ".retrieve_shared" do
+  it "retrieves the shared ContextState matching description" do
+    state = ContextState.new ""
+    MSpec.retrieve(:shared)["shared"] = state
+    MSpec.retrieve_shared(:shared).should == state
   end
 end

@@ -48,14 +48,16 @@ class TallyAction
   end
 
   def register
-    MSpec.register :load, self
-    MSpec.register :after, self
+    MSpec.register :load,        self
+    MSpec.register :exception,   self
+    MSpec.register :example,     self
     MSpec.register :expectation, self
   end
 
   def unregister
-    MSpec.unregister :load, self
-    MSpec.unregister :after, self
+    MSpec.unregister :load,        self
+    MSpec.unregister :exception,   self
+    MSpec.unregister :example,     self
     MSpec.unregister :expectation, self
   end
 
@@ -63,15 +65,22 @@ class TallyAction
     @counter.files!
   end
 
+  # Callback for the MSpec :expectation event. Increments the
+  # tally of expectations (e.g. #should, #should_receive, etc.).
   def expectation(state)
     @counter.expectations!
   end
 
-  def after(state)
+  # Callback for the MSpec :exception event. Increments the
+  # tally of errors and failures.
+  def exception(exception)
+    exception.failure? ? @counter.failures! : @counter.errors!
+  end
+
+  # Callback for the MSpec :example event. Increments the tally
+  # of examples.
+  def example(state, block)
     @counter.examples!
-    state.exceptions.each do |msg, exc|
-      state.failure?(exc) ? @counter.failures! : @counter.errors!
-    end
   end
 
   def format

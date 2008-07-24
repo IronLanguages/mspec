@@ -1,4 +1,5 @@
-require 'mspec/runner/state'
+require 'mspec/runner/context'
+require 'mspec/runner/exception'
 require 'mspec/runner/tag'
 require 'fileutils'
 
@@ -17,16 +18,21 @@ module MSpec
   @mode    = nil
   @load    = nil
   @unload  = nil
-  @randomize   = nil
-  @expectation = nil
+  @current = nil
+  @shared  = {}
+  @exception    = nil
+  @randomize    = nil
+  @expectation  = nil
+  @expectations = false
 
-  def self.describe(mod, msg=nil, &block)
-    stack.push RunState.new
+  def self.describe(mod, options=nil, &block)
+    state = ContextState.new mod, options
+    state.parent = current
 
-    current.describe(mod, msg, &block)
-    current.process
+    MSpec.register_current state
+    state.describe(&block)
 
-    stack.pop
+    state.process unless state.shared? or current
   end
 
   def self.process
@@ -55,14 +61,55 @@ module MSpec
     actions.each { |obj| obj.send action, *args } if actions
   end
 
+  def self.protect(location, &block)
+    begin
+      @env.instance_eval(&block)
+      return true
+    rescue SystemExit
+      raise
+    rescue Exception => exc
+      register_exit 1
+      actions :exception, ExceptionState.new(current && current.state, location, exc)
+      return false
+    end
+  end
+
+  # Sets the toplevel ContextState to +state+.
+  def self.register_current(state)
+    store :current, state
+  end
+
+  # Sets the toplevel ContextState to +nil+.
+  def self.clear_current
+    store :current, nil
+  end
+
+  # Returns the toplevel ContextState.
+  def self.current
+    retrieve :current
+  end
+
+  # Stores the shared ContextState keyed by description.
+  def self.register_shared(state)
+    @shared[state.to_s] = state
+  end
+
+  # Returns the shared ContextState matching description.
+  def self.retrieve_shared(desc)
+    @shared[desc.to_s]
+  end
+
+  # Stores the exit code used by the runner scripts.
   def self.register_exit(code)
     store :exit, code
   end
 
+  # Retrieves the stored exit code.
   def self.exit_code
     retrieve(:exit).to_i
   end
 
+  # Stores the list of files to be evaluated.
   def self.register_files(files)
     store :files, files
   end
@@ -97,6 +144,8 @@ module MSpec
   #   :enter        before a describe block is run
   #   :before       before a single spec is run
   #   :expectation  before a 'should', 'should_receive', etc.
+  #   :example      after an example block is run, passed the block
+  #   :exception    after an exception is rescued
   #   :after        after a single spec is run
   #   :leave        after a describe block is run
   #   :unload       after a spec file is run
@@ -123,28 +172,6 @@ module MSpec
     if value = retrieve(symbol)
       value.delete action
     end
-  end
-
-  def self.protect(msg, &block)
-    begin
-      @env.instance_eval(&block)
-    rescue Exception => e
-      register_exit 1
-      if current and current.state
-        current.state.exceptions << [msg, e]
-      elsif !$quiet_runner
-        STDERR.write "\nAn exception occurred in #{msg}:\n#{e.class}: #{e.message.inspect}\n"
-        STDERR.write "#{e.backtrace.join "\n"}"
-      end
-    end
-  end
-
-  def self.stack
-    @stack ||= []
-  end
-
-  def self.current
-    stack.last
   end
 
   def self.verify_mode?
@@ -175,6 +202,21 @@ module MSpec
       r = rand(size - i - 1)
       ary[i], ary[r] = ary[r], ary[i]
     end
+  end
+
+  # Records that an expectation has been encountered in an example.
+  def self.expectation
+    store :expectations, true
+  end
+
+  # Returns true if an expectation has been encountered
+  def self.expectation?
+    retrieve :expectations
+  end
+
+  # Resets the flag that an expectation has been encountered in an example.
+  def self.clear_expectations
+    store :expectations, false
   end
 
   # Transforms a spec filename into a tags filename by applying each
