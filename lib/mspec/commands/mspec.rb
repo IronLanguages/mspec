@@ -2,7 +2,7 @@
 
 MSPEC_HOME = File.expand_path(File.dirname(__FILE__) + '/../../..')
 
-require 'optparse'
+require 'mspec/version'
 require 'mspec/utils/options'
 require 'mspec/utils/script'
 require 'mspec/helpers/tmp'
@@ -20,24 +20,19 @@ class MSpecMain < MSpecScript
   end
 
   def options(argv=ARGV)
-    if ["ci", "run", "tag"].include? argv[0]
-      config[:command] = argv.shift
-      config[:options] << "-h" if argv.delete("-h") || argv.delete("--help")
-      config[:options] << "-v" if argv.delete("-v") || argv.delete("--version")
-    end
+    config[:command] = argv.shift if ["ci", "run", "tag"].include?(argv[0])
 
-    options = MSpecOptions.new config, "[COMMAND]", "", 28, "   "
+    options = MSpecOptions.new "mspec [COMMAND] [options] (FILE|DIRECTORY|GLOB)+", 30, config
 
-    options.separator ""
-    options.separator "  The mspec command sets up and invokes the sub-commands"
-    options.separator "  (see below) to enable, for instance, running the specs"
-    options.separator "  with different implementations like ruby, jruby, rbx, etc.\n"
+    options.doc "  The mspec command sets up and invokes the sub-commands"
+    options.doc "  (see below) to enable, for instance, running the specs"
+    options.doc "  with different implementations like ruby, jruby, rbx, etc.\n"
 
-    options.add_config do |f|
+    options.configure do |f|
       config[:options] << '-B' << f
     end
 
-    options.add_targets
+    options.targets
 
     options.on("-D", "--gdb", "Run under gdb") do
       config[:flags] << '--gdb'
@@ -53,21 +48,32 @@ class MSpecMain < MSpecScript
       config[:multi] = true
       config[:options] << "-fy"
     end
-    options.add_version
-    options.on("-h", "--help", "Show this message") do
-      puts options.parser
-      exit
+    options.version MSpec::VERSION do
+      if config[:command]
+        config[:options] << "-v"
+      else
+        puts options
+        exit
+      end
+    end
+    options.help do
+      if config[:command]
+        config[:options] << "-h"
+      else
+        puts options
+        exit 1
+      end
     end
 
     # The rest of the help output
-    options.separator "\n  where COMMAND is one of:\n"
-    options.separator "    run - Run the specified specs (default)"
-    options.separator "    ci  - Run the known good specs"
-    options.separator "    tag - Add or remove tags\n"
-    options.separator "  mspec COMMAND -h for more options\n"
+    options.doc "\n  where COMMAND is one of:\n"
+    options.doc "    run - Run the specified specs (default)"
+    options.doc "    ci  - Run the known good specs"
+    options.doc "    tag - Add or remove tags\n"
+    options.doc "  mspec COMMAND -h for more options\n"
 
-    config[:options] += options.parser.filter! argv
-    options.parse argv
+    options.on_extra { |o| config[:options] << o }
+    config[:options].concat options.parse(argv)
   end
 
   def register; end
@@ -126,11 +132,13 @@ class MSpecMain < MSpecScript
 
   def run
     ENV['MSPEC_RUNNER'] = '1'
+    ENV['RUBY_EXE'] = config[:target]
 
-    argv = ["-v"]
+    argv = []
     argv.concat config[:flags]
     argv.concat config[:includes]
     argv.concat config[:requires]
+    argv << "-v"
     argv << "#{MSPEC_HOME}/bin/mspec-#{ config[:command] || "run" }"
     argv.concat config[:options]
 

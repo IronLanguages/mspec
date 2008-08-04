@@ -5,16 +5,14 @@ require 'mspec/commands/mspec'
 describe MSpecMain, "#options" do
   before :each do
     @options, @config = new_option
-    @options.stub!(:parser).and_return(mock("parser"))
-    @options.parser.stub!(:filter!).and_return(["blocked!"])
     MSpecOptions.stub!(:new).and_return(@options)
 
     @script = MSpecMain.new
     @script.stub!(:config).and_return(@config)
   end
 
-  it "enables the config option" do
-    @options.should_receive(:add_config)
+  it "enables the configure option" do
+    @options.should_receive(:configure)
     @script.options
   end
 
@@ -24,13 +22,34 @@ describe MSpecMain, "#options" do
   end
 
   it "enables the target options" do
-    @options.should_receive(:add_targets)
+    @options.should_receive(:targets)
     @script.options
   end
 
   it "enables the version option" do
-    @options.should_receive(:add_version)
+    @options.should_receive(:version)
     @script.options
+  end
+
+  it "sets config[:options] to all argv entries that are not registered options" do
+    @script.options [".", "-G", "fail"]
+    @config[:options].sort.should == ["-G", ".", "fail"]
+  end
+
+  it "passes -h, --help to the subscript" do
+    ["-h", "--help"].each do |opt|
+      @config[:options] = []
+      @script.options ["ci", opt]
+      @config[:options].sort.should == ["-h"]
+    end
+  end
+
+  it "passes -v, --version to the subscript" do
+    ["-v", "--version"].each do |opt|
+      @config[:options] = []
+      @script.options ["ci", opt]
+      @config[:options].sort.should == ["-v"]
+    end
   end
 end
 
@@ -212,6 +231,13 @@ describe MSpecMain, "#run" do
     ENV["MSPEC_RUNNER"] = "0"
     @script.run
     ENV["MSPEC_RUNNER"].should == "1"
+  end
+
+  it "sets RUBY_EXE = config[:target] in the environment" do
+    @script.stub!(:exec)
+    ENV["RUBY_EXE"] = nil
+    @script.run
+    ENV["RUBY_EXE"].should == @config[:target]
   end
 
   it "uses exec to invoke the runner script" do
