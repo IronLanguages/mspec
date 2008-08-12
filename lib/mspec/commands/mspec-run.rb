@@ -62,16 +62,8 @@ class MSpecRun < MSpecScript
   end
 
   def run
-    files = []
-    @patterns.each do |item|
-      item = File.expand_path(item)
-      stat = File.stat(item)
-      files << item if stat.file?
-      files.concat(Dir[item+"/**/*_spec.rb"].sort) if stat.directory?
-    end
-
     MSpec.register_tags_patterns config[:tags_patterns]
-    MSpec.register_files files
+    MSpec.register_files files(@patterns)
 
     MSpec.process
     exit MSpec.exit_code

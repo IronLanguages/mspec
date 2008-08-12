@@ -3,7 +3,6 @@ require 'mspec/runner/formatters/dotted'
 # MSpecScript provides a skeleton for all the MSpec runner scripts.
 
 class MSpecScript
-  $exclusion_regex = /thread/i
   def self.config
     @config ||= {
       :path => ['.', 'spec'],
@@ -28,6 +27,7 @@ class MSpecScript
     config[:xprofiles] = []
     config[:atags]     = []
     config[:astrings]  = []
+    config[:ltags]     = []
     config[:abort]     = true
   end
 
@@ -49,12 +49,10 @@ class MSpecScript
         return Kernel.load(file) if File.exist? file
       end
     end
-  rescue
-    false
   end
 
   def register
-    config[:formatter].new(config[:output]).register
+    config[:formatter].new(config[:output]).register if config[:formatter]
 
     MatchFilter.new(:include, *config[:includes]).register    unless config[:includes].empty?
     MatchFilter.new(:exclude, *config[:excludes]).register    unless config[:excludes].empty?
@@ -75,6 +73,15 @@ class MSpecScript
         puts "\nProcess aborted!"
         exit! 1
       end
+    end
+  end
+
+  def files(list)
+    list.inject([]) do |files, item|
+      stat = File.stat(File.expand_path(item))
+      files << item if stat.file?
+      files.concat(Dir[item+"/**/*_spec.rb"].sort) if stat.directory?
+      files
     end
   end
 

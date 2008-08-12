@@ -103,7 +103,7 @@ describe MSpecRun, "#run" do
     stat = mock("stat")
     stat.stub!(:file?).and_return(true)
     stat.stub!(:directory?).and_return(false)
-    File.stub!(:expand_path).and_return("one","two")
+    File.stub!(:expand_path)
     File.stub!(:stat).and_return(stat)
 
     options = mock("MSpecOptions", :null_object => true)

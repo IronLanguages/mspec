@@ -5,7 +5,7 @@ require 'mspec/guards/guard'
 
 class BigEndianGuard < SpecGuard
   def pattern
-    [1].pack('L') rescue [false]
+    [1].pack('L')
   end
   private :pattern
 
@@ -16,7 +16,7 @@ end
 
 class LittleEndianGuard < SpecGuard
   def pattern
-    [1].pack('L') rescue [false]
+    [1].pack('L')
   end
   private :pattern
 

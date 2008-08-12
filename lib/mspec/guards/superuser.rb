@@ -2,11 +2,7 @@ require 'mspec/guards/guard'
 
 class SuperUserGuard < SpecGuard
   def match?
-    if defined? Process
-      Process.euid == 0
-    else
-      false
-    end
+    Process.euid == 0
   end
 end
 
